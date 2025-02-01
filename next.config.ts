@@ -5,6 +5,7 @@ const nextConfig: NextConfig = {
   images: {
     domains: ["www.freepnglogos.com"],
   },
+  
 };
 
 export default nextConfig;
