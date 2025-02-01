@@ -1,11 +1,9 @@
 "use client"
-
 import { useState, useCallback, useRef } from "react"
 import { useDropzone } from "react-dropzone"
 import { Mic, Upload, Languages, X } from "lucide-react"
 
 const SUPPORTED_LANGUAGES = [
-//   { code: "en-IN", name: "English", sttCode: "en" },
   { code: "hi-IN", name: "Hindi", sttCode: "hi" },
   { code: "ta-IN", name: "Tamil", sttCode: "ta" },
   { code: "te-IN", name: "Telugu", sttCode: "te" },
@@ -22,7 +20,7 @@ export function MainContent() {
   const [isRecording, setIsRecording] = useState(false)
   const [files, setFiles] = useState<File[]>([])
   const [transcription, setTranscription] = useState("")
-  const [translation, setTranslation] = useState("")
+  const [translation, setTranslation] = useState(null)
   const [inputLanguage, setInputLanguage] = useState("en-IN")
   const [targetLanguage, setTargetLanguage] = useState(SUPPORTED_LANGUAGES[0].code)
   const [isLoading, setIsLoading] = useState(false)
@@ -64,7 +62,7 @@ export function MainContent() {
       mediaRecorder.start()
       setIsRecording(true)
     } catch (error) {
-      setError("Error accessing microphone. Please check your permissions.")
+      // setError("Error accessing microphone. Please check your permissions.")
       console.error("Error accessing microphone:", error)
     }
   }
@@ -99,7 +97,8 @@ export function MainContent() {
       })
 
       if (!response.ok) {
-        throw new Error(`Transcription failed: ${response.statusText}`)
+        console.log("transcription failed")
+        // throw new Error(`Transcription failed: ${response.statusText}`)
       }
 
       setProgress(50)
@@ -108,15 +107,14 @@ export function MainContent() {
       await translateResponse(data.transcript)
       setProgress(100)
     } catch (error: any) {
-      setError(`Error: ${error.message}`)
+      // setError(`Error: ${error.message}`)
       console.error("Transcription error:", error)
     } finally {
       setIsLoading(false)
     }
   }
-  
+
   const translateResponse = async (input: string) => {
-    // const engInput = await detectLanguage(input);
     try {
       const response = await fetch("https://api.sarvam.ai/translate", {
         method: "POST",
@@ -136,21 +134,91 @@ export function MainContent() {
       })
 
       if (!response.ok) {
-        throw new Error(`Translation failed: ${response.statusText}`)
+        console.log("translation failed")
+        // throw new Error(`Translation failed: ${response.statusText}`)
       }
 
       const data = await response.json()
       setTranslation(data.translated_text)
 
+      // Now trigger text-to-speech for the translated text
+      textToSpeech(data.translated_text)
+
     } catch (error: any) {
-      setError(`Translation error: ${error.message}`)
+      // setError(`Translation error: ${error.message}`)
       console.error("Translation error:", error)
     }
   }
-
+  const textToSpeech = async (text: string) => {
+    try {
+      const options = {
+        method: 'POST',
+        headers: {
+          'api-subscription-key': '609361f5-3167-4583-bcc3-f2c0e4a6f7bd',
+          'Content-Type': 'application/json'
+        },
+        body: JSON.stringify({
+          inputs: [text],
+          target_language_code: targetLanguage,
+          speaker: "meera",
+          pitch: 0,
+          pace: 1.65,
+          loudness: 1.5,
+          speech_sample_rate: 8000,
+          enable_preprocessing: false,
+          model: "bulbul:v1"
+        })
+      };
+  
+      const response = await fetch('https://api.sarvam.ai/text-to-speech', options);
+  
+      if (!response.ok) {
+        console.log(' Api error for text to speech')
+        // throw new Error(`API Error: ${response.status} ${response.statusText}`);
+      }
+  
+      const data = await response.json();
+  
+      if (data?.audios?.length > 0) {
+        let base64Audio = data.audios[0]; // Correct access
+  
+        if (base64Audio.startsWith("data:audio")) {
+          base64Audio = base64Audio.split(",")[1];
+        }
+  
+        const audioBlob = base64ToBlob(base64Audio, "audio/wav");
+        const audioUrl = URL.createObjectURL(audioBlob);
+        const audio = new Audio(audioUrl);
+        audio.play();
+      } else {
+        console.error('Failed to get audio from text-to-speech service');
+        // throw new Error('Failed to get audio from text-to-speech service');
+      }
+    } catch (error) {
+      console.error("Text-to-Speech error:", error);
+    }
+  };
+  
+  // Utility function to convert Base64 to Blob
+  const base64ToBlob = (base64: string, mimeType: string) => {
+    const byteCharacters = atob(base64);
+    const byteArrays = [];
+  
+    for (let i = 0; i < byteCharacters.length; i += 512) {
+      const slice = byteCharacters.slice(i, i + 512);
+      const byteNumbers = new Array(slice.length);
+      for (let j = 0; j < slice.length; j++) {
+        byteNumbers[j] = slice.charCodeAt(j);
+      }
+      byteArrays.push(new Uint8Array(byteNumbers));
+    }
+  
+    return new Blob(byteArrays, { type: mimeType });
+  };
+  
   const clearResults = () => {
     setTranscription("")
-    setTranslation("")
+    setTranslation(null)
     setFiles([])
     setError(null)
     setProgress(0)
@@ -173,9 +241,7 @@ export function MainContent() {
         <div className="bg-white dark:bg-gray-800 p-6 rounded-lg shadow-md space-y-6">
           <div className="flex flex-col sm:flex-row justify-center gap-4 items-center">
             <button
-              className={`w-20 h-20 rounded-full relative focus:outline-none ${
-                isRecording ? "bg-red-500 hover:bg-red-600" : "bg-blue-500 hover:bg-blue-600"
-              }`}
+              className={`w-20 h-20 rounded-full relative focus:outline-none ${isRecording ? "bg-red-500 hover:bg-red-600" : "bg-blue-500 hover:bg-blue-600"}`}
               onClick={isRecording ? stopRecording : startRecording}
               disabled={isLoading}
             >
@@ -184,20 +250,7 @@ export function MainContent() {
             </button>
 
             <div className="flex flex-col sm:flex-row gap-4 items-center">
-              {/* <select
-                value={inputLanguage}
-                onChange={(e) => setInputLanguage(e.target.value)}
-                className="w-48 p-2 border rounded-md bg-white dark:bg-gray-700"
-              >
-                {SUPPORTED_LANGUAGES.map((lang) => (
-                  <option key={lang.code} value={lang.code}>
-                    {lang.name} (Input)
-                  </option>
-                ))}
-              </select> */}
-
               <Languages className="hidden sm:block w-6 h-6" />
-
               <select
                 value={targetLanguage}
                 onChange={(e) => setTargetLanguage(e.target.value)}
@@ -212,14 +265,7 @@ export function MainContent() {
             </div>
           </div>
 
-          <div
-            {...getRootProps()}
-            className={`
-              border-2 border-dashed rounded-lg p-8 text-center cursor-pointer
-              transition-colors
-              ${isDragActive ? "border-blue-500 bg-blue-50 dark:bg-blue-900/20" : "border-gray-300 dark:border-gray-600"}
-            `}
-          >
+          <div {...getRootProps()} className="border-2 border-dashed rounded-lg p-8 text-center cursor-pointer">
             <input {...getInputProps()} />
             <Upload className="mx-auto h-12 w-12 text-gray-400" />
             <p className="mt-2 text-sm text-gray-500 dark:text-gray-400">
@@ -229,44 +275,39 @@ export function MainContent() {
 
           {isLoading && (
             <div className="space-y-2">
-              <div className="w-full bg-gray-200 rounded-full h-2.5 dark:bg-gray-700">
-                <div className="bg-blue-600 h-2.5 rounded-full" style={{ width: `${progress}%` }}></div>
+              <div className="w-full bg-gray-200 dark:bg-gray-600 h-2 rounded-full">
+                <div className="h-2 bg-blue-500 rounded-full" style={{ width: `${progress}%` }} />
               </div>
-              <p className="text-sm text-center text-gray-500 dark:text-gray-400">Processing your audio...</p>
+              <p className="text-center text-gray-500 dark:text-gray-400">Processing...</p>
             </div>
           )}
 
-          {(transcription || translation) && (
-            <div className="space-y-4">
-              <div className="flex justify-between items-center">
-                <h2 className="text-lg font-semibold">Results</h2>
-                <button
-                  onClick={clearResults}
-                  className="text-sm text-gray-500 hover:text-gray-700 dark:text-gray-400 dark:hover:text-gray-200 flex items-center"
-                >
-                  <X className="h-4 w-4 mr-1" />
-                  Clear
-                </button>
+          <div className="space-y-4">
+            {transcription && (
+              <div>
+                <h2 className="text-xl font-semibold">Transcription</h2>
+                <p>{transcription}</p>
               </div>
+            )}
 
-              {transcription && (
-                <div className="bg-gray-50 dark:bg-gray-700 p-4 rounded-md">
-                  <h3 className="font-medium mb-2">Transcription</h3>
-                  <p className="text-sm">{transcription}</p>
-                </div>
-              )}
+            {translation && (
+              <div>
+                <h2 className="text-xl font-semibold">Translation</h2>
+                <p>{translation}</p>
+              </div>
+            )}
+          </div>
 
-              {translation && (
-                <div className="bg-gray-50 dark:bg-gray-700 p-4 rounded-md">
-                  <h3 className="font-medium mb-2">Translation</h3>
-                  <p className="text-sm">{translation}</p>
-                </div>
-              )}
-            </div>
+          {(transcription || translation) && (
+            <button
+              className="w-full bg-gray-500 text-white p-2 rounded-md mt-4 hover:bg-gray-600"
+              onClick={clearResults}
+            >
+              Clear
+            </button>
           )}
         </div>
       </div>
     </main>
   )
 }
-
